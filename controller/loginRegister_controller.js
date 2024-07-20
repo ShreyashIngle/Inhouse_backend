@@ -1,7 +1,7 @@
 import pool from "../config/db.js";
 import jwt from "jsonwebtoken";
 import { sendEmail } from "./emailService.js";
-import bcrypt from "bcrypt";
+// import bcrypt from "bcrypt";
 
 const generateToken = (data) => {
   return jwt.sign(data, process.env.JWT_SECRET, { expiresIn: "1h" });
@@ -11,46 +11,55 @@ export const register = async (req, res) => {
   const { name, gmail, password, pro_email } = req.body;
   let role;
 
-
   try {
+    // Check if the user is a student
     const student = await pool.query(
       "SELECT * FROM student_login WHERE Email = ?",
       [gmail]
     );
+
+    // Check if the user is a teacher
     const teacher = await pool.query(
       "SELECT * FROM teacher_login WHERE Username = ?",
       [gmail]
     );
 
-    const proEmailCheck = await pool.query(
-      "SELECT * FROM register WHERE  Username = ?",
-      [gmail]
-    );
-
-
-    if (proEmailCheck[0].length > 0) {
-      return res.status(400).send({ message: "User is already registered" });
-    }
-
-    const saltRound = 10;
-    const hash_password = await bcrypt.hash(password, saltRound);
-
     if (student[0].length > 0) {
-      role = 2;
+      // Check if the student is already registered
+      const proEmailCheck = await pool.query(
+        "SELECT * FROM register WHERE Username = ?",
+        [pro_email]
+      );
+
+      if (proEmailCheck[0].length > 0) {
+        return res.status(400).send({ message: "Student is already registered" });
+      }
+
+      role = 2; // Role for student
       await pool.query(
         "INSERT INTO register (Name, Username, Password, Role, Professional_Email) VALUES(?,?,?,?,?)",
-        [name, gmail, hash_password, role, pro_email]
+        [name, pro_email, password, role, gmail]
       );
-      res.status(200).send("Registration successful");
+      return res.status(200).send("Registration successful for student");
     } else if (teacher[0].length > 0) {
-      role = 1;
+      // Check if the teacher is already registered
+      const usernameCheck = await pool.query(
+        "SELECT * FROM register WHERE Username = ?",
+        [gmail]
+      );
+
+      if (usernameCheck[0].length > 0) {
+        return res.status(400).send({ message: "Teacher is already registered" });
+      }
+
+      role = 1; // Role for teacher
       await pool.query(
         "INSERT INTO register (Name, Username, Password, Role, Professional_Email) VALUES(?,?,?,?,?)",
-        [name, gmail, hash_password, role, gmail]
+        [name, gmail, password, role, gmail]
       );
-      res.status(200).send("Registration successful");
+      return res.status(200).send("Registration successful for teacher");
     } else {
-      res.status(400).send("Invalid email");
+      return res.status(400).send("Invalid email or username");
     }
   } catch (err) {
     console.log(err);
@@ -114,21 +123,83 @@ export const checkRegistration = async (req, res) => {
 };
 
 // Updated login function
+// export const login = async (req, res) => {
+//   const { gmail, password } = req.body;
+//   try {
+//     // Check if the email exists in the register table
+//     const results = await pool.query(
+//       "SELECT * FROM register WHERE Username = ? AND Password = ?",
+//       [gmail,password]
+//     );
+
+//     if (results[0].length > 0) {
+//       const user = results[0][0];
+
+//       // Check if the password matches
+//       // const isMatch = await bcrypt.compare(password, user.Password);
+//       // if (isMatch) {
+//         // Generate token excluding password
+//         const accessToken = generateToken({
+//           id: user.id,
+//           email: user.Email,
+//           role: user.Role,
+//         });
+
+//         // Create user object without password
+//         const userWithoutPassword = {
+//           id: user.id,
+//           Name: user.Name,
+//           Username: user.Username,
+//           Role: user.Role,
+//           Professional_Email: user.Professional_Email,
+//         };
+
+//         res.status(200).send({
+//           success: true,
+//           message: "Login Successful",
+//           data: {
+//             user: userWithoutPassword,
+//             accessToken,
+//           },
+//         });
+//         console.log(req.body); // Log request body if needed
+//       // } else {
+//       //   res.status(401).send({
+//       //     success: false,
+//       //     message: "Incorrect password",
+//       //     data: "Incorrect password",
+//       //   });
+//       // }
+//     } else {
+//       res.status(401).send({
+//         success: false,
+//         message: "Email not registered",
+//         data: "Email not registered",
+//       });
+//     }
+//   } catch (err) {
+//     console.log(err);
+//     res.status(500).send({
+//       success: false,
+//       message: "Error in login",
+//       data: err.message,
+//     });
+//   }
+// };
 export const login = async (req, res) => {
   const { gmail, password } = req.body;
   try {
     // Check if the email exists in the register table
-    const results = await pool.query(
-      "SELECT * FROM register WHERE Professional_Email = ?",
+    const emailCheckResults = await pool.query(
+      "SELECT * FROM register WHERE Username = ?",
       [gmail]
     );
 
-    if (results[0].length > 0) {
-      const user = results[0][0];
+    if (emailCheckResults[0].length > 0) {
+      const user = emailCheckResults[0][0];
 
       // Check if the password matches
-      const isMatch = await bcrypt.compare(password, user.Password);
-      if (isMatch) {
+      if (user.Password === password) {
         // Generate token excluding password
         const accessToken = generateToken({
           id: user.id,
@@ -177,8 +248,6 @@ export const login = async (req, res) => {
     });
   }
 };
-
-
 
 export const getAllTeacher = async (req, res) => {
   try {
@@ -303,8 +372,8 @@ export const resetPasswordController = async (req, res) => {
       return;
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await pool.query('UPDATE register SET Password = ? WHERE Username = ?', [hashedPassword, email]);
+    // const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE register SET Password = ? WHERE Username = ?', [newPassword, email]);
 
     res.status(200).send({
       success: true,
